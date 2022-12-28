@@ -17,7 +17,7 @@ def post_hoc_permuation(y_true, y_score, n_permutations=10000, score_function=ro
     pvalue = (np.sum(permutation_scores >= score) + 1.) / (n_permutations + 1.)
     return score, permutation_scores, pvalue 
 
-def post_hoc_permutation_cv(y_true, y_pred):
+def post_hoc_permutation_cv(y_true, y_pred, cv):
     holdout_sets = [test for _, test in cv.split(y_true)]
     all_score = []
     all_null = []
