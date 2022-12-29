@@ -53,6 +53,8 @@ def random_data_gen(n_samples=1000, n_feats=10, maha=1.0, ratio=0.5, seed=None):
     ## generate data samples from a multivariate normal
     data = np.vstack([mvn_a.rvs(int(n_samples*ratio)), mvn_b.rvs(n_samples - int(n_samples*ratio))])
     labels = np.arange(len(data))<int(n_samples*ratio)
+    shuffle_idx = np.random.choice(np.arange(n_samples), n_samples, replace=False)
+    data, labels = data[shuffle_idx], labels[shuffle_idx]
     return data, labels
 
 ## decorator factory for simulation
