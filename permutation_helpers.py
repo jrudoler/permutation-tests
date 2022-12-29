@@ -72,12 +72,12 @@ def simulate(parameter_range, n_sim):
                 futures=[]
                 for i in range(n_sim):
                     for p in parameter_range:
-                        futures.append(client.submit(function, *args, param=p, seed=i, **kwargs))
+                        futures.append(client.submit(function, *args, param=p, seed=i, retries=1, **kwargs))
                 print(f"{len(futures)} parallel jobs")
                 # pbar = progress(futures, notebook=True)
                 # display(pbar)
                 wait(futures)
-                gathered_futures = client.gather(futures)
+                gathered_futures = [f.result() if f.status=='finished' else None for f in futures]
                 result = {p:{} for p in parameter_range}
                 for i in range(len(futures)):
                     result[parameter_range[i%n_params]][i//n_params] = gathered_futures[i]
