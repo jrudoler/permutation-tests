@@ -6,11 +6,11 @@ from scipy.stats import multivariate_normal, invwishart
 from functools import wraps
 from dask.distributed import Client, wait, progress
 
-def post_hoc_permuation(y_true, y_score, n_permutations=10000, score_function=roc_auc_score, seed=None, n_jobs=None, verbose=False): 
+def post_hoc_permuation(y_true, y_score, n_permutations=10000, score_function=roc_auc_score, seed=None, n_jobs=None, backend="threading", verbose=False): 
     if seed:
         np.random.seed(seed)
     score = score_function(y_true, y_score)
-    permutation_scores = Parallel(n_jobs=n_jobs, verbose=verbose)(
+    permutation_scores = Parallel(n_jobs=n_jobs, backend=backend, verbose=verbose)(
         delayed(score_function)(
             np.random.choice(y_true, len(y_true), replace=False),
             y_score
@@ -74,14 +74,13 @@ def simulate(parameter_range, n_sim):
                     for p in parameter_range:
                         futures.append(client.submit(function, *args, param=p, seed=i, retries=1, **kwargs))
                 print(f"{len(futures)} parallel jobs")
-                # pbar = progress(futures, notebook=True)
-                # display(pbar)
+                progress(futures, notebook=False)
                 wait(futures)
                 gathered_futures = [f.result() if f.status=='finished' else None for f in futures]
                 result = {p:{} for p in parameter_range}
                 for i in range(len(futures)):
                     result[parameter_range[i%n_params]][i//n_params] = gathered_futures[i]
-                return result
+                return result, futures
 
         except ValueError:
             print("No dask client avaialable, running sequentially")
