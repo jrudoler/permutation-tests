@@ -47,8 +47,9 @@ def random_data_gen(n_samples=1000, n_feats=10, maha=1.0, ratio=0.5, seed=None):
     norm_means_a = norm_means_a * (maha / dist)
     assert np.isclose(mahalanobis(norm_means_a, norm_means_b, wishart_cov), maha)
     ## multivariate normal distributions with different means and equal variances
-    mvn_a = multivariate_normal(mean=norm_means_a, cov=wishart_cov)
-    mvn_b = multivariate_normal(mean=norm_means_b, cov=wishart_cov)
+    ## is allow_singular=True ok? means there's a PC with zero variance, which is maybe ok?
+    mvn_a = multivariate_normal(mean=norm_means_a, cov=wishart_cov, allow_singular=True)
+    mvn_b = multivariate_normal(mean=norm_means_b, cov=wishart_cov, allow_singular=True)
     ## generate data samples from a multivariate normal
     data = np.vstack([mvn_a.rvs(int(n_samples*ratio)), mvn_b.rvs(n_samples - int(n_samples*ratio))])
     labels = np.arange(len(data))<int(n_samples*ratio)
