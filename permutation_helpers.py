@@ -6,7 +6,7 @@ from scipy.stats import multivariate_normal, invwishart
 from functools import wraps
 from dask.distributed import Client, wait, progress
 
-def post_hoc_permuation(y_true, y_score, n_permutations=10000, score_function=roc_auc_score, seed=None, n_jobs=None, backend="threading", verbose=False): 
+def post_hoc_permutation(y_true, y_score, n_permutations=10000, score_function=roc_auc_score, seed=None, n_jobs=None, backend="threading", verbose=False): 
     if seed:
         np.random.seed(seed)
     score = score_function(y_true, y_score)
@@ -26,7 +26,7 @@ def post_hoc_permutation_cv(y_true, y_pred, cv):
     all_score = []
     all_null = []
     for holdout_idx in holdout_sets:
-        score, null, p = post_hoc_permuation(y_true[holdout_idx], y_pred[holdout_idx, 1], n_jobs=-1, verbose=True)
+        score, null, p = post_hoc_permutation(y_true[holdout_idx], y_pred[holdout_idx, 1], n_jobs=-1, verbose=True)
         all_score.append(score)
         all_null.append(null)
     score = np.mean(all_score)
