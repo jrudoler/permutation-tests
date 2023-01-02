@@ -1,6 +1,7 @@
 import numpy as np
 from joblib.parallel import Parallel, delayed
 from sklearn.metrics import roc_auc_score
+from sklearn.base import clone
 from scipy.spatial.distance import mahalanobis
 from scipy.stats import multivariate_normal, invwishart
 from functools import wraps

@@ -39,7 +39,8 @@ if __name__=="__main__":
         log_directory="/home1/jrudoler/logs/",
     )
     rhino_client.cluster.scale(400)
-    results, futures = simulate_maha()
+    with rhino_client.as_current():
+        results, futures = simulate_maha()
     df_result = pd.DataFrame(results).melt(var_name="param")
     df_result[["score", "perm_scores", "pval"]] = df_result['value'].apply(pd.Series)
     df_result = df_result.drop(columns='value')
