@@ -4,7 +4,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.base import clone
 from scipy.spatial.distance import mahalanobis
 from scipy.stats import multivariate_normal, invwishart
-from functools import wraps
+from functools import wraps, partial
 from dask.distributed import Client, wait, progress
 
 def post_hoc_permutation(y_true, y_score, n_permutations=10000, score_function=roc_auc_score, seed=None, n_jobs=None, backend="threading", verbose=False): 
@@ -59,16 +59,17 @@ def random_data_gen(n_samples=1000, n_feats=10, maha=1.0, ratio=0.5, seed=None):
     return data, labels
 
 ## decorator factory for simulation
-def simulate(parameter_range, n_sim):
+def simulate(parameter_range, n_sim, client=None):
     """
     Decorator factory for simulating a function over a range of parameters. 
     """
-    n_params = len(parameter_range)
     def decorator(function):
         wraps(function)
         print(f"Running {n_sim} simulations")
         try:
-            client = Client.current()
+            nonlocal client
+            if client is None:
+                client = Client.current()
             print(f"using dask client at {client.dashboard_link}")
             def wrapper(*args, **kwargs):
                 print(f"Running {n_sim} simulations")
@@ -78,18 +79,20 @@ def simulate(parameter_range, n_sim):
                     for p in parameter_range:
                         futures.append(client.submit(function, *args, param=p, seed=i, retries=1, **kwargs))
                 print(f"{len(futures)} parallel jobs")
-                progress(futures, notebook=False)
-                wait(futures)
-                gathered_futures = [f.result() if f.status=='finished' else None for f in futures]
-                result = {p:{} for p in parameter_range}
-                for i in range(len(futures)):
-                    result[parameter_range[i%n_params]][i//n_params] = gathered_futures[i]
-                return result, futures
-
-        except ValueError:
-            print("No dask client avaialable, running sequentially")
+#                 progress(futures, notebook=False)
+#                 wait(futures)
+                def gather(parameter_range, futures):
+                    n_params = len(parameter_range)
+                    gathered_futures = [f.result() if f.status=='finished' else None for f in futures]
+                    result = {p:{} for p in parameter_range}
+                    for i in range(len(futures)):
+                        result[parameter_range[i%n_params]][i//n_params] = gathered_futures[i]
+                    return result
+                return futures, partial(gather, parameter_range)
+        except ValueError as e:
+            print("No dask client available, running sequentially")
             def wrapper(*args, **kwargs):
-                print("No dask client avaialable, running sequentially")
+                print("No dask client available, running sequentially")
                 result = {p:{} for p in parameter_range}
                 for i in range(n_sim):
                     for p in parameter_range:
