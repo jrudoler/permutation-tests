@@ -38,19 +38,19 @@ def post_hoc_permutation_cv(y_true, y_pred, cv):
 def random_data_gen(n_samples=1000, n_feats=10, maha=1.0, ratio=0.5, seed=None):
     if seed:
         np.random.seed(seed)
-    random_matrix = lambda n: np.dot(mat:=np.random.randn(n, n), mat.T)
     ## initialize multivariate normal dist with normally distributed means and covariance
     ## drawn from an inverse wishart distribution (conjugate prior for MVN)
     norm_means_a = np.random.randn(n_feats)
     norm_means_b = np.zeros_like(norm_means_a)
-    wishart_cov = invwishart(n_feats, random_matrix(n_feats)).rvs()
+    wishart_cov = invwishart(n_feats+1, np.identity(n_feats)).rvs()
     dist = mahalanobis(norm_means_a, norm_means_b, wishart_cov)
     norm_means_a = norm_means_a * (maha / dist)
     assert np.isclose(mahalanobis(norm_means_a, norm_means_b, wishart_cov), maha)
     ## multivariate normal distributions with different means and equal variances
-    ## is allow_singular=True ok? means there's a PC with zero variance, which is maybe ok?
-    mvn_a = multivariate_normal(mean=norm_means_a, cov=wishart_cov, allow_singular=True)
-    mvn_b = multivariate_normal(mean=norm_means_b, cov=wishart_cov, allow_singular=True)
+    corr = (D:=np.diag(1/np.sqrt(np.diag(wishart_cov)))) @ wishart_cov @ D
+    print("Correlation matrix:\n", corr)
+    mvn_a = multivariate_normal(mean=norm_means_a, cov=wishart_cov)
+    mvn_b = multivariate_normal(mean=norm_means_b, cov=wishart_cov)
     ## generate data samples from a multivariate normal
     data = np.vstack([mvn_a.rvs(int(n_samples*ratio)), mvn_b.rvs(n_samples - int(n_samples*ratio))])
     labels = np.arange(len(data))<int(n_samples*ratio)
@@ -60,8 +60,25 @@ def random_data_gen(n_samples=1000, n_feats=10, maha=1.0, ratio=0.5, seed=None):
 
 ## decorator factory for simulation
 def simulate(parameter_range, n_sim, client=None):
-    """
-    Decorator factory for simulating a function over a range of parameters. 
+    """Decorator factory for simulating a function over a range of parameters. Use as a decorator for a function which takes keyword argument "param" 
+    
+    Parameters
+    ----------
+    parameter_range (list-like): sequence of parameters for which to run simulations
+    n_sim (int): number of simulations to run for each parameter
+    client (dask.distributed.Client): Optional, dask client for parallel computing
+    
+    Returns
+    -------
+    If Dask client is provided or defined in global context:
+        futures (list[dask.distributed.Future]): list of Dask futures corresponding to individual simulations
+        gather (partial function): function to gather futures into a structured dictionary of results, nested by parameter
+    Otherwise:
+        result (dict): structured dictionary of results, nested by parameter 
+        
+    Notes
+    -----
+    Best use case is to run in a Jupyter notebook with a dask client instantiated in an earlier cell.
     """
     def decorator(function):
         wraps(function)
@@ -79,8 +96,6 @@ def simulate(parameter_range, n_sim, client=None):
                     for p in parameter_range:
                         futures.append(client.submit(function, *args, param=p, seed=i, retries=1, **kwargs))
                 print(f"{len(futures)} parallel jobs")
-#                 progress(futures, notebook=False)
-#                 wait(futures)
                 def gather(parameter_range, futures):
                     n_params = len(parameter_range)
                     gathered_futures = [f.result() if f.status=='finished' else None for f in futures]
