@@ -48,14 +48,14 @@ def random_data_gen(n_samples=1000, n_feats=10, maha=1.0, psi_diag=1.0, psi_offd
     nu = n_feats + ddof
     wishart_cov = invwishart(nu, psi).rvs()
     ## specify the mahalanobis distance between the two distributions
-    dist = mahalanobis(norm_means_a, norm_means_b, wishart_cov)
+    dist = mahalanobis(norm_means_a, norm_means_b, np.linalg.inv(wishart_cov))
     norm_means_a = norm_means_a * (maha / dist)
-    assert np.isclose(mahalanobis(norm_means_a, norm_means_b, wishart_cov), maha)
+    assert np.isclose(mahalanobis(norm_means_a, norm_means_b, np.linalg.inv(wishart_cov)), maha)
     ## multivariate normal distributions with different means and equal variances
     mvn_a = multivariate_normal(mean=norm_means_a, cov=wishart_cov)
     mvn_b = multivariate_normal(mean=norm_means_b, cov=wishart_cov)
     ## not used, but compute correlations
-    corr = (D:=np.diag(1/np.sqrt(np.diag(wishart_cov)))) @ wishart_cov @ D
+    #corr = (D:=np.diag(1/np.sqrt(np.diag(wishart_cov)))) @ wishart_cov @ D
     ## generate data samples from a multivariate normal
     data = np.vstack([mvn_a.rvs(int(n_samples*class_ratio)), mvn_b.rvs(n_samples - int(n_samples*class_ratio))])
     labels = np.arange(len(data))<int(n_samples*class_ratio)
