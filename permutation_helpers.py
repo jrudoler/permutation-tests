@@ -10,7 +10,9 @@ from dask.distributed import Client, wait, progress
 def post_hoc_permutation(y_true, y_score, n_permutations=10000, score_function=roc_auc_score, seed=None, n_jobs=None, backend="threading", verbose=False): 
     if seed:
         np.random.seed(seed)
+    ## observed score
     score = score_function(y_true, y_score)
+    ## run permutations in parallel to generate null scores
     permutation_scores = Parallel(n_jobs=n_jobs, backend=backend, verbose=verbose)(
         delayed(score_function)(
             np.random.choice(y_true, len(y_true), replace=False),
@@ -35,28 +37,52 @@ def post_hoc_permutation_cv(y_true, y_pred, cv):
     pvalue = (np.sum(np.mean(all_score) <= avg_null)+1.)/(all_null.shape[1]+1.)
     return score, avg_null, pvalue
 
-def random_data_gen(n_samples=1000, n_feats=10, maha=1.0, ratio=0.5, seed=None):
+def random_data_gen(n_samples=1000, n_feats=10, maha=1.0, psi_diag=1.0, psi_offdiag=0., ddof=150, class_ratio=0.5, seed=None):
     if seed:
         np.random.seed(seed)
     ## initialize multivariate normal dist with normally distributed means and covariance
     ## drawn from an inverse wishart distribution (conjugate prior for MVN)
     norm_means_a = np.random.randn(n_feats)
     norm_means_b = np.zeros_like(norm_means_a)
-    wishart_cov = invwishart(n_feats+1, np.identity(n_feats)).rvs()
+    psi = psi_diag * np.eye(n_feats) + psi_offdiag * ~np.eye(n_feats).astype(bool)
+    nu = n_feats + ddof
+    wishart_cov = invwishart(nu, psi).rvs()
+    ## specify the mahalanobis distance between the two distributions
     dist = mahalanobis(norm_means_a, norm_means_b, wishart_cov)
     norm_means_a = norm_means_a * (maha / dist)
     assert np.isclose(mahalanobis(norm_means_a, norm_means_b, wishart_cov), maha)
     ## multivariate normal distributions with different means and equal variances
-    corr = (D:=np.diag(1/np.sqrt(np.diag(wishart_cov)))) @ wishart_cov @ D
-    print("Correlation matrix:\n", corr)
     mvn_a = multivariate_normal(mean=norm_means_a, cov=wishart_cov)
     mvn_b = multivariate_normal(mean=norm_means_b, cov=wishart_cov)
+    ## not used, but compute correlations
+    corr = (D:=np.diag(1/np.sqrt(np.diag(wishart_cov)))) @ wishart_cov @ D
     ## generate data samples from a multivariate normal
-    data = np.vstack([mvn_a.rvs(int(n_samples*ratio)), mvn_b.rvs(n_samples - int(n_samples*ratio))])
-    labels = np.arange(len(data))<int(n_samples*ratio)
-    shuffle_idx = np.random.choice(np.arange(n_samples), n_samples, replace=False)
-    data, labels = data[shuffle_idx], labels[shuffle_idx]
+    data = np.vstack([mvn_a.rvs(int(n_samples*class_ratio)), mvn_b.rvs(n_samples - int(n_samples*class_ratio))])
+    labels = np.arange(len(data))<int(n_samples*class_ratio)
     return data, labels
+
+# def random_data_gen(n_samples=1000, n_feats=10, maha=1.0, ratio=0.5, seed=None):
+#     if seed:
+#         np.random.seed(seed)
+#     ## initialize multivariate normal dist with normally distributed means and covariance
+#     ## drawn from an inverse wishart distribution (conjugate prior for MVN)
+#     norm_means_a = np.random.randn(n_feats)
+#     norm_means_b = np.zeros_like(norm_means_a)
+#     wishart_cov = invwishart(n_feats+1, np.identity(n_feats)).rvs()
+#     dist = mahalanobis(norm_means_a, norm_means_b, wishart_cov)
+#     norm_means_a = norm_means_a * (maha / dist)
+#     assert np.isclose(mahalanobis(norm_means_a, norm_means_b, wishart_cov), maha)
+#     ## multivariate normal distributions with different means and equal variances
+#     corr = (D:=np.diag(1/np.sqrt(np.diag(wishart_cov)))) @ wishart_cov @ D
+#     print("Correlation matrix:\n", corr)
+#     mvn_a = multivariate_normal(mean=norm_means_a, cov=wishart_cov)
+#     mvn_b = multivariate_normal(mean=norm_means_b, cov=wishart_cov)
+#     ## generate data samples from a multivariate normal
+#     data = np.vstack([mvn_a.rvs(int(n_samples*ratio)), mvn_b.rvs(n_samples - int(n_samples*ratio))])
+#     labels = np.arange(len(data))<int(n_samples*ratio)
+#     shuffle_idx = np.random.choice(np.arange(n_samples), n_samples, replace=False)
+#     data, labels = data[shuffle_idx], labels[shuffle_idx]
+#     return data, labels
 
 ## decorator factory for simulation
 def simulate(parameter_range, n_sim, client=None):
@@ -80,22 +106,23 @@ def simulate(parameter_range, n_sim, client=None):
     -----
     Best use case is to run in a Jupyter notebook with a dask client instantiated in an earlier cell.
     """
-    def decorator(function):
+    def sim_decorator(function):
+        ## decorator that will replace the function it wraps
         wraps(function)
         print(f"Running {n_sim} simulations")
         try:
             nonlocal client
+            ## grab client from global env if present, otherwise will raise ValueError
             if client is None:
                 client = Client.current()
-            print(f"using dask client at {client.dashboard_link}")
+            print(f"Using dask client at {client.dashboard_link}")
             def wrapper(*args, **kwargs):
-                print(f"Running {n_sim} simulations")
-                print(f"Using dask client at {client.dashboard_link}")
                 futures=[]
                 for i in range(n_sim):
                     for p in parameter_range:
                         futures.append(client.submit(function, *args, param=p, seed=i, retries=1, **kwargs))
                 print(f"{len(futures)} parallel jobs")
+                ## helper to properly gather and sort distributed jobs
                 def gather(parameter_range, futures):
                     n_params = len(parameter_range)
                     gathered_futures = [f.result() if f.status=='finished' else None for f in futures]
@@ -103,15 +130,16 @@ def simulate(parameter_range, n_sim, client=None):
                     for i in range(len(futures)):
                         result[parameter_range[i%n_params]][i//n_params] = gathered_futures[i]
                     return result
+                ## return the futures, and a gathering function to be run when the jobs finish
                 return futures, partial(gather, parameter_range)
+        ## if no client is available, run sequentially
         except ValueError as e:
             print("No dask client available, running sequentially")
             def wrapper(*args, **kwargs):
-                print("No dask client available, running sequentially")
                 result = {p:{} for p in parameter_range}
                 for i in range(n_sim):
                     for p in parameter_range:
                         result[p][i] = function(*args, param=p, **kwargs)
                 return result
         return wrapper
-    return decorator
+    return sim_decorator
