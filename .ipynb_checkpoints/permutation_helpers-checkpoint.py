@@ -57,7 +57,10 @@ def random_data_gen(n_samples=1000, n_feats=10, maha=1.0, psi_diag=1.0, psi_offd
     ## not used, but compute correlations
     #corr = (D:=np.diag(1/np.sqrt(np.diag(wishart_cov)))) @ wishart_cov @ D
     ## generate data samples from a multivariate normal
-    data = np.vstack([mvn_a.rvs(int(n_samples*class_ratio)), mvn_b.rvs(n_samples - int(n_samples*class_ratio))])
+    data = np.vstack([
+        mvn_a.rvs(int(n_samples*class_ratio)),
+        mvn_b.rvs(n_samples - int(n_samples*class_ratio))
+    ])
     labels = np.arange(len(data))<int(n_samples*class_ratio)
     return data, labels
 
