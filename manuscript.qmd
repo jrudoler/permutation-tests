@@ -1,0 +1,24 @@
+---
+title: Quarto Basics
+format: html
+bibliography: [/Users/jrudoler/Lab-Bibliography/memlab.bib]
+jupyter: py3da
+geometry:
+  - left=.75in
+  - textwidth=4.5in
+  - marginparsep=.25in
+  - marginparwidth=2.25in
+  - showframe
+---
+
+## Let's write a cool paper about simulations
+
+I can cite [@RudoEtal23]
+
+I can also cite 
+
+```{python}
+2+2
+```
+
+## References
