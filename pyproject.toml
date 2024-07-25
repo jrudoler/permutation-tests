@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "permutation-tests"
+version = "0.1.0"
+description = "permutation tests for assessing classifier significance"
+authors = ["Joseph H. Rudoler"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+numpy = "^2.0.1"
+scipy = "^1.14.0"
+scikit-learn = "^1.5.1"
+dask = {extras = ["distributed"], version = "^2024.7.1"}
+ipykernel = "^6.29.5"
+pandas = "^2.2.2"
+seaborn = "^0.13.2"
+dask-jobqueue = "^0.8.5"
+ipywidgets = "^8.1.3"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
