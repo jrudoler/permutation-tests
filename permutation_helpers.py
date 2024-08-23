@@ -1,6 +1,6 @@
 import numpy as np
 from joblib.parallel import Parallel, delayed
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, accuracy_score, log_loss, brier_score_loss
 from sklearn.base import clone
 from scipy.spatial.distance import mahalanobis
 from scipy.stats import multivariate_normal, invwishart
@@ -10,6 +10,25 @@ from dask.distributed import Client, wait, progress
 # get generalized types
 from typing import *
 
+def score_model(y_true, y_pred):
+    """
+    Compute performance metrics based on given predictions (output from predict_proba)
+      and labels. 
+    Returns a dictionary with the following metrics:
+    - roc_auc
+    - accuracy
+    - log_loss
+    - brier_score
+    """
+    # predictions are 1 if the probability of the positive class is greater than 0.5
+    y_pred_proba = np.array(y_pred)
+    y_pred_disc = (y_pred_proba > 0.5).astype(int)
+    # compute metrics
+    roc_auc = float(roc_auc_score(y_true, y_pred_proba))
+    accuracy = float(accuracy_score(y_true, y_pred_disc))
+    logloss = float(log_loss(y_true, y_pred_proba))
+    brier_score = float(brier_score_loss(y_true, y_pred_proba, pos_label=1))
+    return {"roc_auc":roc_auc, "accuracy":accuracy, "log_loss":logloss, "brier_score":brier_score}
 
 def post_hoc_permutation(
     y_true,
@@ -69,7 +88,7 @@ def _train_score(
         y_train = y_train[indices]
     estimator.fit(X_train, y_train)
     y_pred = estimator.predict_proba(X_test)[:, 1]
-    score = score_func(y_true=y_test, y_score=y_pred)
+    score = score_func(y_test, y_pred)
     return score
 
 

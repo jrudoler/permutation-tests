@@ -248,19 +248,19 @@ tests = ["pytest", "pytest-cov", "pytest-xdist"]
 
 [[package]]
 name = "dask"
-version = "2024.7.1"
+version = "2024.8.1"
 description = "Parallel PyData with Task Scheduling"
 optional = false
-python-versions = ">=3.9"
+python-versions = ">=3.10"
 files = [
-    {file = "dask-2024.7.1-py3-none-any.whl", hash = "sha256:dd046840050376c317de90629db5c6197adda820176cf3e2df10c3219d11951f"},
-    {file = "dask-2024.7.1.tar.gz", hash = "sha256:dbaef2d50efee841a9d981a218cfeb50392fc9a95e0403b6d680450e4f50d531"},
+    {file = "dask-2024.8.1-py3-none-any.whl", hash = "sha256:b8b58cba91dc9c057c8676dcc80b8bc321602b4dfd21529d33b03b55d428e2c3"},
+    {file = "dask-2024.8.1.tar.gz", hash = "sha256:4254e43ac8c3affad2b22952f126b00a00f52c87caae91c068d8e395a4ad1a72"},
 ]
 
 [package.dependencies]
 click = ">=8.1"
-cloudpickle = ">=1.5.0"
-distributed = {version = "2024.7.1", optional = true, markers = "extra == \"distributed\""}
+cloudpickle = ">=3.0.0"
+distributed = {version = "2024.8.1", optional = true, markers = "extra == \"distributed\""}
 fsspec = ">=2021.09.0"
 importlib-metadata = {version = ">=4.13.0", markers = "python_version < \"3.12\""}
 packaging = ">=20.0"
@@ -273,18 +273,18 @@ array = ["numpy (>=1.21)"]
 complete = ["dask[array,dataframe,diagnostics,distributed]", "lz4 (>=4.3.2)", "pyarrow (>=7.0)", "pyarrow-hotfix"]
 dataframe = ["dask-expr (>=1.1,<1.2)", "dask[array]", "pandas (>=2.0)"]
 diagnostics = ["bokeh (>=2.4.2)", "jinja2 (>=2.10.3)"]
-distributed = ["distributed (==2024.7.1)"]
+distributed = ["distributed (==2024.8.1)"]
 test = ["pandas[test]", "pre-commit", "pytest", "pytest-cov", "pytest-rerunfailures", "pytest-timeout", "pytest-xdist"]
 
 [[package]]
 name = "dask-jobqueue"
-version = "0.8.5"
+version = "0.9.0"
 description = "Deploy Dask on job queuing systems like PBS, Slurm, SGE or LSF"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.10"
 files = [
-    {file = "dask-jobqueue-0.8.5.tar.gz", hash = "sha256:f6923f9d7ff894b96efbf706118b2cd37fd37751d567e91c22dfd3e2eaa93202"},
-    {file = "dask_jobqueue-0.8.5-py2.py3-none-any.whl", hash = "sha256:96a51083b93e5e66354bdb337840663202e45b20930071edeb41af07bbd5af26"},
+    {file = "dask_jobqueue-0.9.0-py2.py3-none-any.whl", hash = "sha256:253dfc4f0b8722201a08e05b841859dfeea1f6698ff21eff0d9370e5aa8ae20f"},
+    {file = "dask_jobqueue-0.9.0.tar.gz", hash = "sha256:494ef64b7bb3848c7d72ed334c288030caca6a09dca54cfaa3f395f4ba7f5c47"},
 ]
 
 [package.dependencies]
@@ -338,30 +338,30 @@ files = [
 
 [[package]]
 name = "distributed"
-version = "2024.7.1"
+version = "2024.8.1"
 description = "Distributed scheduler for Dask"
 optional = false
-python-versions = ">=3.9"
+python-versions = ">=3.10"
 files = [
-    {file = "distributed-2024.7.1-py3-none-any.whl", hash = "sha256:d5ac38d9682c191e6582c86ebf37c10d7adb60bf4a95048a05ae4fb0866119bc"},
-    {file = "distributed-2024.7.1.tar.gz", hash = "sha256:7bce7fa745163b55bdd67fd632b3edf57b31827640390b92d0ee3f73436429d3"},
+    {file = "distributed-2024.8.1-py3-none-any.whl", hash = "sha256:03f5d3fe7a407cdc16dd2bc25dff4900b72f8dee896b7174eebe8a10b42d8c06"},
+    {file = "distributed-2024.8.1.tar.gz", hash = "sha256:82394ceb68b91118717148dbe182cff679f32621812bd7b2bc27eaaa8589f962"},
 ]
 
 [package.dependencies]
 click = ">=8.0"
-cloudpickle = ">=1.5.0"
-dask = "2024.7.1"
+cloudpickle = ">=2.0.0"
+dask = "2024.8.1"
 jinja2 = ">=2.10.3"
 locket = ">=1.0.0"
-msgpack = ">=1.0.0"
+msgpack = ">=1.0.2"
 packaging = ">=20.0"
-psutil = ">=5.7.2"
-pyyaml = ">=5.3.1"
+psutil = ">=5.8.0"
+pyyaml = ">=5.4.1"
 sortedcontainers = ">=2.0.5"
 tblib = ">=1.6.0"
-toolz = ">=0.10.0"
-tornado = ">=6.0.4"
-urllib3 = ">=1.24.3"
+toolz = ">=0.11.2"
+tornado = ">=6.2.0"
+urllib3 = ">=1.26.5"
 zict = ">=3.0.0"
 
 [[package]]
@@ -1973,4 +1973,4 @@ test = ["big-O", "importlib-resources", "jaraco.functools", "jaraco.itertools", 
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "5ee3d3dbba42ba5c3a1f7804ab20dcac88076e69331ca83f132bec634f757dec"
+content-hash = "446900be4a71e64a6950c19407aa55e2026389e11129d699cad80806c75bbea3"
