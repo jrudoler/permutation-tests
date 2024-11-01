@@ -1,19 +1,17 @@
 import numpy as np
 from joblib.parallel import Parallel, delayed
 from sklearn.metrics import roc_auc_score, accuracy_score, log_loss, brier_score_loss
-from sklearn.base import clone
+from sklearn.base import clone, BaseEstimator
 from scipy.spatial.distance import mahalanobis
 from scipy.stats import multivariate_normal, invwishart
-from functools import wraps, partial
-from dask.distributed import Client, wait, progress
+from typing import Optional, Sequence, Tuple, Dict
+from sklearn.model_selection import BaseCrossValidator
 
-# get generalized types
-from typing import *
 
-def score_model(y_true, y_pred):
+def score_model(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     """
     Compute performance metrics based on given predictions (output from predict_proba)
-      and labels. 
+    and labels.
     Returns a dictionary with the following metrics:
     - roc_auc
     - accuracy
@@ -23,31 +21,30 @@ def score_model(y_true, y_pred):
     # predictions are 1 if the probability of the positive class is greater than 0.5
     y_pred_proba = np.array(y_pred)
     y_pred_disc = (y_pred_proba > 0.5).astype(int)
-    # compute metrics
-    roc_auc = float(roc_auc_score(y_true, y_pred_proba))
-    accuracy = float(accuracy_score(y_true, y_pred_disc))
-    logloss = float(log_loss(y_true, y_pred_proba))
-    brier_score = float(brier_score_loss(y_true, y_pred_proba, pos_label=1))
-    return {"roc_auc":roc_auc, "accuracy":accuracy, "log_loss":logloss, "brier_score":brier_score}
+    return {
+        "roc_auc": float(roc_auc_score(y_true, y_pred_proba)),
+        "accuracy": float(accuracy_score(y_true, y_pred_disc)),
+        "log_loss": float(log_loss(y_true, y_pred_proba)),
+        "brier_score": float(brier_score_loss(y_true, y_pred_proba, pos_label=1)),
+    }
+
 
 def post_hoc_permutation(
-    y_true,
-    y_score,
-    n_permutations=10000,
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    n_permutations: int = 10000,
     score_function=roc_auc_score,
-    seed=None,
-    n_jobs=None,
-    backend="threading",
-    verbose=False,
-) -> tuple[object, Sequence[object]]:
+    seed: Optional[int] = None,
+    n_jobs: Optional[int] = None,
+    backend: str = "threading",
+    verbose: bool = False,
+) -> Tuple[float, Sequence[float]]:
     """
     Permutes the labels and computes the score function for each permutation to generate a null distribution of scores.
     """
-    if seed:
+    if seed is not None:
         np.random.seed(seed)
-    ## observed score
     score = score_function(y_true, y_score)
-    ## run permutations in parallel to generate null scores
     permutation_scores = Parallel(n_jobs=n_jobs, backend=backend, verbose=verbose)(
         delayed(score_function)(
             np.random.choice(y_true, len(y_true), replace=False), y_score
@@ -60,24 +57,85 @@ def post_hoc_permutation(
 def compute_p_value(score, null_scores):
     assert isinstance(null_scores, Sequence[float])
     assert isinstance(score, float)
+    assert null_scores, "Null scores cannot be empty."
+    assert not any(np.isnan(null_scores)), "Null scores cannot contain NaNs."
     pvalue = (np.sum(np.array(null_scores) >= score) + 1.0) / (len(null_scores) + 1.0)
     return pvalue
 
 
-def post_hoc_permutation_cv(y_true, y_pred, cv):
-    holdout_sets = [test for _, test in cv.split(y_true)]
+def post_hoc_permutation_cv(
+    X: np.ndarray,
+    y: np.ndarray,
+    model: BaseEstimator,
+    cv: BaseCrossValidator,
+    n_permutations: int = 1000,
+    score_func=roc_auc_score,
+    n_jobs: Optional[int] = None,
+    verbose: bool = False,
+) -> Tuple[float, np.ndarray, float]:
+    """
+    Perform post-hoc permutation tests using cross-validation.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        Feature matrix.
+    y : np.ndarray
+        Target vector.
+    model : BaseEstimator
+        The machine learning model to train and evaluate.
+    cv : BaseCrossValidator
+        Cross-validation strategy to use.
+    n_permutations : int
+        Number of permutations to perform.
+    score_func : callable
+        Scoring function to evaluate the model.
+    n_jobs : int, optional
+        Number of jobs to run in parallel.
+    verbose : bool, optional
+        If True, print progress messages.
+
+    Returns
+    -------
+    score : float
+        Average score across all folds with original labels.
+    avg_null : np.ndarray
+        Average null scores across all folds.
+    pvalue : float
+        P-value based on the null distribution.
+    """
+    holdout_sets = [test for _, test in cv.split(y)]
     all_score = []
     all_null = []
+
     for holdout_idx in holdout_sets:
-        score, null = post_hoc_permutation(
-            y_true[holdout_idx], y_pred[holdout_idx, 1], n_jobs=-1, verbose=True
+        # Split the data into training and holdout sets
+        X_train, X_test = X[~np.isin(np.arange(len(y)), holdout_idx)], X[holdout_idx]
+        y_train, y_test = y[~np.isin(np.arange(len(y)), holdout_idx)], y[holdout_idx]
+
+        # Train the model
+        model.fit(X_train, y_train)
+        y_pred = model.predict_proba(X_test)[:, 1]
+
+        # Perform post-hoc permutation
+        score, null_scores = post_hoc_permutation(
+            y_test,
+            y_pred,
+            n_permutations=n_permutations,
+            score_function=score_func,
+            n_jobs=n_jobs,
+            verbose=verbose,
         )
+
         all_score.append(score)
-        all_null.append(null)
-    score = np.mean(all_score)
-    avg_null = np.vstack(all_null).mean(0)
-    pvalue = compute_p_value(all_score, all_score)
-    return score, avg_null, pvalue
+        all_null.append(null_scores)
+
+    # Calculate average score and null distribution
+    avg_score = np.mean(all_score)
+    avg_null = np.mean(all_null, axis=0)
+    pvalue = compute_p_value(avg_score, avg_null)
+
+    return avg_score, avg_null, pvalue
 
 
 def _train_score(
@@ -88,8 +146,7 @@ def _train_score(
         y_train = y_train[indices]
     estimator.fit(X_train, y_train)
     y_pred = estimator.predict_proba(X_test)[:, 1]
-    score = score_func(y_test, y_pred)
-    return score
+    return score_func(y_test, y_pred)
 
 
 def pre_training_permutation(
@@ -98,11 +155,11 @@ def pre_training_permutation(
     X_test,
     y_train,
     y_test,
-    n_permutations,
+    n_permutations: int,
     score_func,
-    verbose=False,
-    n_jobs=None,
-):
+    verbose: bool = False,
+    n_jobs: Optional[int] = None,
+) -> Tuple[float, Sequence[float]]:
     score = _train_score(
         clone(estimator),
         X_train,
@@ -124,22 +181,20 @@ def pre_training_permutation(
         )
         for _ in range(n_permutations)
     )
-    # permutation_scores = np.array(permutation_scores)
-    # pvalue = (np.sum(permutation_scores >= score) + 1.0) / (n_permutations + 1)
     return score, permutation_scores
 
 
 def random_data_gen(
-    n_samples=1000,
-    n_feats=10,
-    maha=1.0,
-    psi_diag=1.0,
-    psi_offdiag=0.0,
-    ddof=150,
-    class_ratio=0.5,
-    seed=None,
-):
-    if seed:
+    n_samples: int = 1000,
+    n_feats: int = 10,
+    maha: float = 1.0,
+    psi_diag: float = 1.0,
+    psi_offdiag: float = 0.0,
+    ddof: int = 150,
+    class_ratio: float = 0.5,
+    seed: Optional[int] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    if seed is not None:
         np.random.seed(seed)
     ## initialize multivariate normal dist with normally distributed means and covariance
     ## drawn from an inverse wishart distribution (conjugate prior for MVN)
