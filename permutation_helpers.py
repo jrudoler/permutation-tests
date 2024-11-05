@@ -2,10 +2,11 @@ import numpy as np
 from joblib.parallel import Parallel, delayed
 from sklearn.metrics import roc_auc_score, accuracy_score, log_loss, brier_score_loss
 from sklearn.base import clone, BaseEstimator
+from sklearn.utils import shuffle
 from sklearn.model_selection import GridSearchCV
 from scipy.spatial.distance import mahalanobis
 from scipy.stats import multivariate_normal, invwishart
-from typing import Optional, Sequence, Tuple, Dict
+from typing import Optional, Sequence, Tuple, Dict, List
 from sklearn.model_selection import BaseCrossValidator
 
 
@@ -56,10 +57,10 @@ def post_hoc_permutation(
 
 
 def compute_p_value(score, null_scores):
-    assert isinstance(null_scores, Sequence[float])
-    assert isinstance(score, float)
-    assert null_scores, "Null scores cannot be empty."
-    assert not any(np.isnan(null_scores)), "Null scores cannot contain NaNs."
+    # assert isinstance(null_scores, Sequence)
+    # assert isinstance(score, float)
+    # assert null_scores, "Null scores cannot be empty."
+    # assert not any(np.isnan(null_scores)), "Null scores cannot contain NaNs."
     pvalue = (np.sum(np.array(null_scores) >= score) + 1.0) / (len(null_scores) + 1.0)
     return pvalue
 
@@ -137,6 +138,23 @@ def compute_p_value(score, null_scores):
 #     pvalue = compute_p_value(avg_score, avg_null)
 
 #     return avg_score, avg_null, pvalue
+
+
+# Assuming each dictionary in all_scores has the same keys
+# def compute_avg_score(all_scores: List[Dict[str, float]]) -> Dict[str, float]:
+#     keys = all_scores[0].keys()
+#     avg_score = {key: np.mean([d[key] for d in all_scores]) for key in keys}
+#     return avg_score
+
+
+# # Compute avg_null as a list of dictionaries
+# def compute_avg_null(all_nulls: List[List[Dict[str, float]]]) -> List[Dict[str, float]]:
+#     keys = all_nulls[0][0].keys()  # Assuming all dictionaries have the same keys
+#     avg_null = [
+#         {key: np.mean([d[key] for d in inner_list]) for key in keys}
+#         for inner_list in all_nulls
+#     ]
+#     return avg_null
 
 
 def post_hoc_permutation_cv_nested(
@@ -263,6 +281,9 @@ def random_data_gen(
         ]
     )
     labels = np.arange(len(data)) < int(n_samples * class_ratio)
+
+    data, labels = shuffle(data, labels, random_state=seed)
+
     return data, labels
 
 

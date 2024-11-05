@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
 import os
-from dask.distributed import Client
+import time
+from dask.distributed import Client, wait
 from dask_jobqueue import SGECluster
 from simulate import simulate
 from permutation_helpers import (
@@ -10,8 +11,8 @@ from permutation_helpers import (
     score_model,
 )
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import train_test_split, KFold, GridSearchCV
+from sklearn.model_selection import KFold, train_test_split
+from sklearn.metrics import roc_auc_score, accuracy_score
 import numpy as np
 from copy import deepcopy
 import pickle
@@ -21,7 +22,7 @@ def set_params(maha, save=True):
     ### shared parameters
     class_params = {
         "C": np.logspace(np.log10(1e-4), np.log10(1e5), 8),
-        "class_weight": "balanced",
+        "class_weight": ["balanced"],
     }
     permutation_params = {"n_permutations": 5000}
     sim_params = {
@@ -55,7 +56,7 @@ def set_params(maha, save=True):
     ## the corresponding key from the data_gen dictionary to avoid conflicts
 
     samplesize_params = deepcopy(default_params)
-    samplesize_params["sim"]["parameter_range"] = np.logspace(2, 5, 5).astype(int)
+    samplesize_params["sim"]["parameter_range"] = np.logspace(3, 5, 4).astype(int)
     samplesize_params["data_gen"].pop("n_samples")
 
     nfeats_params = deepcopy(default_params)
@@ -137,6 +138,9 @@ def simulate_samplesize_cv_nested(param=None, seed=None, simno=None, settings=No
     inner_cv = KFold(n_splits=5)
     outer_cv = KFold(n_splits=5)
 
+    def score_func(y_true, y_pred):
+        return accuracy_score(y_true, (y_pred > 0.5).astype(int))
+
     score, null_scores, pvalue = post_hoc_permutation_cv_nested(
         X=X,
         y=y,
@@ -144,13 +148,13 @@ def simulate_samplesize_cv_nested(param=None, seed=None, simno=None, settings=No
         param_grid=settings["classif"],
         outer_cv=outer_cv,
         inner_cv=inner_cv,
-        score_func=score_model,
+        score_func=score_func,
     )
     if settings["file"]["save"]:
         os.makedirs(settings["file"]["results_dir"], exist_ok=True)
         file_path = os.path.join(
             settings["file"]["results_dir"],
-            f"cv_post_samplesize_{param:.4f}_simno_{simno:05}.pkl",
+            f"cv_post_accuracy_samplesize_{param:.4f}_simno_{simno:05}.pkl",
         )
         pickle.dump(
             {"score": score, "null_scores": null_scores, "pvalue": pvalue},
@@ -161,19 +165,35 @@ def simulate_samplesize_cv_nested(param=None, seed=None, simno=None, settings=No
 def run_simulation(maha):
     # Define simulation parameters
     samplesize_params, nfeats_params, ratio_params, testsize_params, _ = set_params(
-        maha, save=False
+        maha, save=True
     )
 
     sim_samplesize = simulate(**samplesize_params["sim"])(simulate_samplesize_cv_nested)
 
-    sim_samplesize(settings=samplesize_params)
+    futures = sim_samplesize(settings=samplesize_params)
+    # wait for all futures to return, print time taken
+    start_time = time.time()
+    wait(futures)
+    end_time = time.time()
+    print(
+        "#" * 10,
+        f"\nAll futures returned for maha = {maha:.1f} in {end_time - start_time:.2f} seconds\n",
+        "#" * 10,
+    )
 
 
 if __name__ == "__main__":
     # Set up Dask cluster
+    print("#" * 10, "\nSetting up Dask cluster\n", "#" * 10)
     client = setup_dask_cluster()
-
+    print(
+        "#" * 10,
+        f"\nDask cluster available at {client.dashboard_link}\n",
+        "#" * 10,
+    )
     maha_values = np.linspace(0.0, 1.5, 5)
     for maha in maha_values:
+        print("#" * 10, f"\nRunning simulation for maha = {maha:.1f}\n", "#" * 10)
         run_simulation(maha)
+    print("#" * 10, "\nShutting down Dask cluster\n", "#" * 10)
     client.shutdown()
