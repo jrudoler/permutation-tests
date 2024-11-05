@@ -2,6 +2,7 @@ import numpy as np
 from joblib.parallel import Parallel, delayed
 from sklearn.metrics import roc_auc_score, accuracy_score, log_loss, brier_score_loss
 from sklearn.base import clone, BaseEstimator
+from sklearn.model_selection import GridSearchCV
 from scipy.spatial.distance import mahalanobis
 from scipy.stats import multivariate_normal, invwishart
 from typing import Optional, Sequence, Tuple, Dict
@@ -63,61 +64,104 @@ def compute_p_value(score, null_scores):
     return pvalue
 
 
-def post_hoc_permutation_cv(
+# def post_hoc_permutation_cv(
+#     X: np.ndarray,
+#     y: np.ndarray,
+#     model: BaseEstimator,
+#     cv: BaseCrossValidator,
+#     n_permutations: int = 1000,
+#     score_func=roc_auc_score,
+#     n_jobs: Optional[int] = None,
+#     verbose: bool = False,
+# ) -> Tuple[float, np.ndarray, float]:
+#     """
+#     Perform post-hoc permutation tests using cross-validation.
+
+#     Parameters
+#     ----------
+#     X : np.ndarray
+#         Feature matrix.
+#     y : np.ndarray
+#         Target vector.
+#     model : BaseEstimator
+#         The machine learning model to train and evaluate.
+#     cv : BaseCrossValidator
+#         Cross-validation strategy to use.
+#     n_permutations : int
+#         Number of permutations to perform.
+#     score_func : callable
+#         Scoring function to evaluate the model.
+#     n_jobs : int, optional
+#         Number of jobs to run in parallel.
+#     verbose : bool, optional
+#         If True, print progress messages.
+
+#     Returns
+#     -------
+#     score : float
+#         Average score across all folds with original labels.
+#     avg_null : np.ndarray
+#         Average null scores across all folds.
+#     pvalue : float
+#         P-value based on the null distribution.
+#     """
+#     holdout_sets = [test for _, test in cv.split(y)]
+#     all_score = []
+#     all_null = []
+
+#     for holdout_idx in holdout_sets:
+#         # Split the data into training and holdout sets
+#         X_train, X_test = X[~np.isin(np.arange(len(y)), holdout_idx)], X[holdout_idx]
+#         y_train, y_test = y[~np.isin(np.arange(len(y)), holdout_idx)], y[holdout_idx]
+
+#         # Train the model
+#         model.fit(X_train, y_train)
+#         y_pred = model.predict_proba(X_test)[:, 1]
+
+#         # Perform post-hoc permutation
+#         score, null_scores = post_hoc_permutation(
+#             y_test,
+#             y_pred,
+#             n_permutations=n_permutations,
+#             score_function=score_func,
+#             n_jobs=n_jobs,
+#             verbose=verbose,
+#         )
+
+#         all_score.append(score)
+#         all_null.append(null_scores)
+
+#     # Calculate average score and null distribution
+#     avg_score = np.mean(all_score)
+#     avg_null = np.mean(all_null, axis=0)
+#     pvalue = compute_p_value(avg_score, avg_null)
+
+#     return avg_score, avg_null, pvalue
+
+
+def post_hoc_permutation_cv_nested(
     X: np.ndarray,
     y: np.ndarray,
     model: BaseEstimator,
-    cv: BaseCrossValidator,
+    param_grid: Dict[str, Sequence[float]],
+    outer_cv: BaseCrossValidator,
+    inner_cv: BaseCrossValidator,
     n_permutations: int = 1000,
-    score_func=roc_auc_score,
+    score_func=score_model,
     n_jobs: Optional[int] = None,
     verbose: bool = False,
 ) -> Tuple[float, np.ndarray, float]:
-    """
-    Perform post-hoc permutation tests using cross-validation.
+    all_scores = []
+    all_nulls = []
+    for train_idx, test_idx in outer_cv.split(X, y):
+        X_train, X_test = X[train_idx], X[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
 
-    Parameters
-    ----------
-    X : np.ndarray
-        Feature matrix.
-    y : np.ndarray
-        Target vector.
-    model : BaseEstimator
-        The machine learning model to train and evaluate.
-    cv : BaseCrossValidator
-        Cross-validation strategy to use.
-    n_permutations : int
-        Number of permutations to perform.
-    score_func : callable
-        Scoring function to evaluate the model.
-    n_jobs : int, optional
-        Number of jobs to run in parallel.
-    verbose : bool, optional
-        If True, print progress messages.
+        grid = GridSearchCV(model, param_grid, cv=inner_cv, scoring=score_func)
+        grid.fit(X_train, y_train)
+        best_model = grid.best_estimator_
 
-    Returns
-    -------
-    score : float
-        Average score across all folds with original labels.
-    avg_null : np.ndarray
-        Average null scores across all folds.
-    pvalue : float
-        P-value based on the null distribution.
-    """
-    holdout_sets = [test for _, test in cv.split(y)]
-    all_score = []
-    all_null = []
-
-    for holdout_idx in holdout_sets:
-        # Split the data into training and holdout sets
-        X_train, X_test = X[~np.isin(np.arange(len(y)), holdout_idx)], X[holdout_idx]
-        y_train, y_test = y[~np.isin(np.arange(len(y)), holdout_idx)], y[holdout_idx]
-
-        # Train the model
-        model.fit(X_train, y_train)
-        y_pred = model.predict_proba(X_test)[:, 1]
-
-        # Perform post-hoc permutation
+        y_pred = best_model.predict_proba(X_test)[:, 1]
         score, null_scores = post_hoc_permutation(
             y_test,
             y_pred,
@@ -126,15 +170,12 @@ def post_hoc_permutation_cv(
             n_jobs=n_jobs,
             verbose=verbose,
         )
+        all_scores.append(score)
+        all_nulls.append(null_scores)
 
-        all_score.append(score)
-        all_null.append(null_scores)
-
-    # Calculate average score and null distribution
-    avg_score = np.mean(all_score)
-    avg_null = np.mean(all_null, axis=0)
+    avg_score = np.mean(all_scores)
+    avg_null = np.mean(all_nulls, axis=0)
     pvalue = compute_p_value(avg_score, avg_null)
-
     return avg_score, avg_null, pvalue
 
 
