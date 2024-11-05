@@ -157,7 +157,12 @@ def simulate_samplesize_cv_nested(param=None, seed=None, simno=None, settings=No
             f"cv_post_accuracy_samplesize_{param:.4f}_simno_{simno:05}.pkl",
         )
         pickle.dump(
-            {"score": score, "null_scores": null_scores, "pvalue": pvalue},
+            {
+                "param": param,
+                "score": score,
+                "null_scores": null_scores,
+                "pvalue": pvalue,
+            },
             open(file_path, "wb"),
         )
 
@@ -180,6 +185,7 @@ def run_simulation(maha):
         f"\nAll futures returned for maha = {maha:.1f} in {end_time - start_time:.2f} seconds\n",
         "#" * 10,
     )
+    return futures
 
 
 if __name__ == "__main__":
@@ -194,6 +200,6 @@ if __name__ == "__main__":
     maha_values = np.linspace(0.0, 1.5, 5)
     for maha in maha_values:
         print("#" * 10, f"\nRunning simulation for maha = {maha:.1f}\n", "#" * 10)
-        run_simulation(maha)
+        futures = run_simulation(maha)
     print("#" * 10, "\nShutting down Dask cluster\n", "#" * 10)
     client.shutdown()

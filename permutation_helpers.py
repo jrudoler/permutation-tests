@@ -198,9 +198,9 @@ def post_hoc_permutation_cv_nested(
 
 
 def _train_score(
-    estimator, X_train, X_test, y_train, y_test, score_func, shuffle_labels=False
+    estimator, X_train, X_test, y_train, y_test, score_func, shuffle_train=False
 ):
-    if shuffle_labels:
+    if shuffle_train:
         indices = np.random.default_rng().permutation(len(y_train))
         y_train = y_train[indices]
     estimator.fit(X_train, y_train)
@@ -226,7 +226,7 @@ def pre_training_permutation(
         y_train,
         y_test,
         score_func,
-        shuffle_labels=False,
+        shuffle_train=False,
     )
     permutation_scores = Parallel(n_jobs=n_jobs, verbose=verbose)(
         delayed(_train_score)(
@@ -236,11 +236,125 @@ def pre_training_permutation(
             y_train,
             y_test,
             score_func,
-            shuffle_labels=True,
+            shuffle_train=True,
         )
         for _ in range(n_permutations)
     )
     return score, permutation_scores
+
+
+def pre_training_permutation_cv_nested(
+    X: np.ndarray,
+    y: np.ndarray,
+    model: BaseEstimator,
+    param_grid: Dict[str, Sequence[float]],
+    outer_cv: BaseCrossValidator,
+    inner_cv: BaseCrossValidator,
+    n_permutations: int = 1000,
+    score_func=score_model,
+    n_jobs: Optional[int] = None,
+    verbose: bool = False,
+) -> Tuple[float, np.ndarray, float]:
+    """
+    Perform pre-training permutation tests using cross-validation.
+    Permutes the training labels within each outer fold.
+    """
+    all_scores = []
+    all_nulls = []
+    for train_idx, test_idx in outer_cv.split(X, y):
+        X_train, X_test = X[train_idx], X[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
+
+        grid = GridSearchCV(model, param_grid, cv=inner_cv, scoring=score_func)
+        grid.fit(X_train, y_train)
+        best_model = grid.best_estimator_
+
+        # perform pre-training permutation on outer fold using best model from inner fold
+        score, null_scores = pre_training_permutation(
+            best_model,
+            X_train,
+            X_test,
+            y_train,
+            y_test,
+            n_permutations,
+            score_func,
+            n_jobs,
+            verbose,
+        )
+        all_scores.append(score)
+        all_nulls.append(null_scores)
+
+    avg_score = np.mean(all_scores)
+    avg_null = np.mean(all_nulls, axis=0)
+    # pvalue = compute_p_value(avg_score, avg_null)
+    return avg_score, avg_null
+
+
+# also try the originally proposed pre-training CV, where labels
+# are shuffled across folds
+def pre_training_permutation_cv_acrossfolds(
+    X: np.ndarray,
+    y: np.ndarray,
+    model: BaseEstimator,
+    param_grid: Dict[str, Sequence[float]],
+    outer_cv: BaseCrossValidator,
+    inner_cv: BaseCrossValidator,
+    n_permutations: int = 1000,
+    score_func=score_model,
+    n_jobs: Optional[int] = None,
+    verbose: bool = False,
+) -> Tuple[float, np.ndarray, float]:
+    """
+    Perform pre-training permutation tests using cross-validation.
+    Permutes the training/holdout labels across folds.
+    """
+    score = nested_cv_vanilla(
+        X, y, model, param_grid, outer_cv, inner_cv, score_func, shuffle_labels=False
+    )
+    null_scores = Parallel(n_jobs=n_jobs, verbose=verbose)(
+        delayed(nested_cv_vanilla)(
+            X, y, model, param_grid, outer_cv, inner_cv, score_func, shuffle_labels=True
+        )
+        for _ in range(n_permutations)
+    )
+
+    return score, null_scores
+
+
+def nested_cv_vanilla(
+    X: np.ndarray,
+    y: np.ndarray,
+    model: BaseEstimator,
+    param_grid: Dict[str, Sequence[float]],
+    outer_cv: BaseCrossValidator,
+    inner_cv: BaseCrossValidator,
+    score_func,
+    shuffle_labels: bool = False,
+):
+    if shuffle_labels:
+        shuffled_idx = np.random.default_rng().permutation(len(y))
+        y = y[shuffled_idx]
+
+    holdout_scores = []
+    for train_idx, test_idx in outer_cv.split(X, y):
+        X_train, X_test = X[train_idx], X[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
+
+        grid = GridSearchCV(model, param_grid, cv=inner_cv, scoring=score_func)
+        grid.fit(X_train, y_train)
+        best_model = grid.best_estimator_
+
+        score = _train_score(
+            best_model,
+            X_train,
+            X_test,
+            y_train,
+            y_test,
+            score_func,
+            shuffle_labels=False,
+        )
+        holdout_scores.append(score)
+    return np.mean(holdout_scores)
 
 
 def random_data_gen(
