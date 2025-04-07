@@ -6,7 +6,7 @@ from sklearn.utils import shuffle
 from sklearn.model_selection import GridSearchCV
 from scipy.spatial.distance import mahalanobis
 from scipy.stats import multivariate_normal, invwishart
-from typing import Optional, Sequence, Tuple, Dict, List
+from typing import Optional, Sequence, Tuple, Dict
 from sklearn.model_selection import BaseCrossValidator
 
 
@@ -48,9 +48,7 @@ def post_hoc_permutation(
         np.random.seed(seed)
     score = score_function(y_true, y_score)
     permutation_scores = Parallel(n_jobs=n_jobs, backend=backend, verbose=verbose)(
-        delayed(score_function)(
-            np.random.choice(y_true, len(y_true), replace=False), y_score
-        )
+        delayed(score_function)(np.random.choice(y_true, len(y_true), replace=False), y_score)
         for _ in range(n_permutations)
     )
     return score, permutation_scores
@@ -175,11 +173,14 @@ def post_hoc_permutation_cv_nested(
         X_train, X_test = X[train_idx], X[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
 
+        # penalty parameter tuning on the inner fold
         grid = GridSearchCV(model, param_grid, cv=inner_cv, scoring=score_func)
+        # fit the model on everything but the outer-fold holdout set
         grid.fit(X_train, y_train)
         best_model = grid.best_estimator_
-
+        # predict on the holdout set
         y_pred = best_model.predict_proba(X_test)[:, 1]
+        # run post-hoc permutation
         score, null_scores = post_hoc_permutation(
             y_test,
             y_pred,
@@ -191,15 +192,15 @@ def post_hoc_permutation_cv_nested(
         all_scores.append(score)
         all_nulls.append(null_scores)
 
+    # compute average score and null distribution across outer folds
     avg_score = np.mean(all_scores)
     avg_null = np.mean(all_nulls, axis=0)
+    # compute p-value
     pvalue = compute_p_value(avg_score, avg_null)
     return avg_score, avg_null, pvalue
 
 
-def _train_score(
-    estimator, X_train, X_test, y_train, y_test, score_func, shuffle_train=False
-):
+def _train_score(estimator, X_train, X_test, y_train, y_test, score_func, shuffle_train=False):
     if shuffle_train:
         indices = np.random.default_rng().permutation(len(y_train))
         y_train = y_train[indices]
@@ -308,17 +309,15 @@ def pre_training_permutation_cv_acrossfolds(
     Perform pre-training permutation tests using cross-validation.
     Permutes the training/holdout labels across folds.
     """
-    score = nested_cv_vanilla(
-        X, y, model, param_grid, outer_cv, inner_cv, score_func, shuffle_labels=False
-    )
+    score = nested_cv_vanilla(X, y, model, param_grid, outer_cv, inner_cv, score_func, shuffle_labels=False)
     null_scores = Parallel(n_jobs=n_jobs, verbose=verbose)(
-        delayed(nested_cv_vanilla)(
-            X, y, model, param_grid, outer_cv, inner_cv, score_func, shuffle_labels=True
-        )
+        delayed(nested_cv_vanilla)(X, y, model, param_grid, outer_cv, inner_cv, score_func, shuffle_labels=True)
         for _ in range(n_permutations)
     )
+    # compute p-value
+    pvalue = compute_p_value(score, null_scores)
 
-    return score, null_scores
+    return score, null_scores, pvalue
 
 
 def nested_cv_vanilla(
@@ -351,7 +350,7 @@ def nested_cv_vanilla(
             y_train,
             y_test,
             score_func,
-            shuffle_labels=False,
+            shuffle_train=False,
         )
         holdout_scores.append(score)
     return np.mean(holdout_scores)
@@ -379,9 +378,7 @@ def random_data_gen(
     ## specify the mahalanobis distance between the two distributions
     dist = mahalanobis(norm_means_a, norm_means_b, np.linalg.inv(wishart_cov))
     norm_means_a = norm_means_a * (maha / dist)
-    assert np.isclose(
-        mahalanobis(norm_means_a, norm_means_b, np.linalg.inv(wishart_cov)), maha
-    )
+    assert np.isclose(mahalanobis(norm_means_a, norm_means_b, np.linalg.inv(wishart_cov)), maha)
     ## multivariate normal distributions with different means and equal variances
     mvn_a = multivariate_normal(mean=norm_means_a, cov=wishart_cov)
     mvn_b = multivariate_normal(mean=norm_means_b, cov=wishart_cov)

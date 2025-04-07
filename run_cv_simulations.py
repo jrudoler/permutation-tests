@@ -8,6 +8,7 @@ from simulate import simulate
 from permutation_helpers import (
     post_hoc_permutation_cv_nested,
     random_data_gen,
+    pre_training_permutation_cv_acrossfolds,
     score_model,
 )
 from sklearn.linear_model import LogisticRegression
@@ -64,15 +65,11 @@ def set_params(maha, save=True):
     nfeats_params["data_gen"].pop("n_feats")
 
     ratio_params = deepcopy(default_params)
-    ratio_params["sim"]["parameter_range"] = np.logspace(
-        np.log10(0.01), np.log10(0.5), 5
-    )
+    ratio_params["sim"]["parameter_range"] = np.logspace(np.log10(0.01), np.log10(0.5), 5)
     ratio_params["data_gen"].pop("class_ratio")
 
     testsize_params = deepcopy(default_params)
-    testsize_params["sim"]["parameter_range"] = np.logspace(
-        np.log10(0.01), np.log10(0.5), 5
-    )
+    testsize_params["sim"]["parameter_range"] = np.logspace(np.log10(0.01), np.log10(0.5), 5)
     if save:
         pickle.dump(
             samplesize_params,
@@ -83,9 +80,7 @@ def set_params(maha, save=True):
         )
         pickle.dump(
             nfeats_params,
-            open(
-                f"settings/nfeats_params_maha_{data_gen_params['maha']:.1f}.pkl", "wb"
-            ),
+            open(f"settings/nfeats_params_maha_{data_gen_params['maha']:.1f}.pkl", "wb"),
         )
         pickle.dump(
             ratio_params,
@@ -93,9 +88,7 @@ def set_params(maha, save=True):
         )
         pickle.dump(
             testsize_params,
-            open(
-                f"settings/testsize_params_maha_{data_gen_params['maha']:.1f}.pkl", "wb"
-            ),
+            open(f"settings/testsize_params_maha_{data_gen_params['maha']:.1f}.pkl", "wb"),
         )
     return (
         samplesize_params,
@@ -120,18 +113,18 @@ def setup_dask_cluster():
         memory="2GB",
         processes=1,
         queue="short.q",
-        job_extra=["-t 1-120"],
+        job_extra_directives=["-t 1-120"],
         log_directory=os.path.join(os.environ["HOME"], "logs/"),
         local_directory=os.path.join(os.environ["HOME"], "dask-worker-space/"),
         walltime="03:59:00",
         name="permutations-{$SGE_TASK_ID}",
     )
     client = Client(cluster)
-    cluster.scale(n=100)
+    cluster.scale(n=1)
     return client
 
 
-def simulate_samplesize_cv_nested(param=None, seed=None, simno=None, settings=None):
+def simulate_post_samplesize_cv_nested(param=None, seed=None, simno=None, settings=None):
     settings = deepcopy(settings)
     X, y = random_data_gen(n_samples=param, seed=seed, **settings["data_gen"])
 
@@ -158,6 +151,43 @@ def simulate_samplesize_cv_nested(param=None, seed=None, simno=None, settings=No
         )
         pickle.dump(
             {
+                "simno": simno,
+                "param": param,
+                "score": score,
+                "null_scores": null_scores,
+                "pvalue": pvalue,
+            },
+            open(file_path, "wb"),
+        )
+
+
+def simulate_pre_samplesize_cv_acrossfolds(param=None, seed=None, simno=None, settings=None):
+    settings = deepcopy(settings)
+    X, y = random_data_gen(n_samples=param, seed=seed, **settings["data_gen"])
+    inner_cv = KFold(n_splits=5)
+    outer_cv = KFold(n_splits=5)
+
+    def score_func(y_true, y_pred):
+        return accuracy_score(y_true, (y_pred > 0.5).astype(int))
+
+    score, null_scores, pvalue = pre_training_permutation_cv_acrossfolds(
+        X=X,
+        y=y,
+        model=LogisticRegression(),
+        param_grid=settings["classif"],
+        outer_cv=outer_cv,
+        inner_cv=inner_cv,
+        score_func=score_func,
+    )
+    if settings["file"]["save"]:
+        os.makedirs(settings["file"]["results_dir"], exist_ok=True)
+        file_path = os.path.join(
+            settings["file"]["results_dir"],
+            f"cv_pre_accuracy_samplesize_{param:.4f}_simno_{simno:05}.pkl",
+        )
+        pickle.dump(
+            {
+                "simno": simno,
                 "param": param,
                 "score": score,
                 "null_scores": null_scores,
@@ -169,13 +199,15 @@ def simulate_samplesize_cv_nested(param=None, seed=None, simno=None, settings=No
 
 def run_simulation(maha):
     # Define simulation parameters
-    samplesize_params, nfeats_params, ratio_params, testsize_params, _ = set_params(
-        maha, save=True
-    )
+    samplesize_params, nfeats_params, ratio_params, testsize_params, _ = set_params(maha, save=True)
 
-    sim_samplesize = simulate(**samplesize_params["sim"])(simulate_samplesize_cv_nested)
+    sim_samplesize_post = simulate(**samplesize_params["sim"])(simulate_post_samplesize_cv_nested)
 
-    futures = sim_samplesize(settings=samplesize_params)
+    sim_samplesize_pre = simulate(**samplesize_params["sim"])(simulate_pre_samplesize_cv_acrossfolds)
+    post_futures = sim_samplesize_post(settings=samplesize_params)
+    pre_futures = sim_samplesize_pre(settings=samplesize_params)
+
+    futures = post_futures + pre_futures
     # wait for all futures to return, print time taken
     start_time = time.time()
     wait(futures)
@@ -199,7 +231,7 @@ if __name__ == "__main__":
     )
     maha_values = np.linspace(0.0, 1.5, 5)
     for maha in maha_values:
-        print("#" * 10, f"\nRunning simulation for maha = {maha:.1f}\n", "#" * 10)
+        print("#" * 10, f"\nRunning simulations for maha = {maha:.1f}\n", "#" * 10)
         futures = run_simulation(maha)
     print("#" * 10, "\nShutting down Dask cluster\n", "#" * 10)
     client.shutdown()
